@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code xe robot Arduino</title>
+<style>
+:root{--bg:#eef1f0;--panel:#fff;--ink:#1b2a2e;--muted:#5d6f73;--line:#d5dddc;--accent:#0f7b6c;--code-bg:#14262b;--code-ink:#d7e6e3}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;display:flex}
+aside{width:300px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:28px 16px;overflow:auto}
+aside h1{font-size:18px;margin:0 8px 4px}
+aside p{margin:0 8px 18px;color:var(--muted);font-size:14px}
+.group{margin:0 8px 6px;padding-top:10px;color:var(--muted);font-size:13px;font-weight:600;overflow-wrap:anywhere}
+nav button{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 14px;border-radius:8px;font:inherit;color:var(--ink);cursor:pointer;border-left:4px solid transparent;overflow-wrap:anywhere}
+nav button:hover{background:var(--bg)}
+nav button[aria-current="true"]{background:var(--bg);border-left-color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;display:flex;flex-direction:column;padding:28px}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.bar h2{margin:0;font-size:20px;overflow-wrap:anywhere}
+.actions{display:flex;gap:8px}
+.btn{border:1px solid var(--accent);background:var(--accent);color:#fff;font:inherit;font-weight:600;padding:9px 18px;border-radius:8px;cursor:pointer}
+.btn.alt{background:var(--panel);color:var(--accent)}
+.btn:focus-visible,nav button:focus-visible{outline:3px solid #7cc9bd;outline-offset:2px}
+pre{flex:1;margin:0;background:var(--code-bg);color:var(--code-ink);padding:20px;border-radius:10px;overflow:auto;font:14px/1.6 ui-monospace,Consolas,Menlo,monospace;tab-size:2;white-space:pre}
+.msg{white-space:normal;font-family:inherit;font-size:15px;max-width:60ch}
+@media (max-width:720px){
+  body{flex-direction:column}
+  aside{width:100%;border-right:0;border-bottom:1px solid var(--line);padding:16px;max-height:40%}
+  aside p{display:none}
+  main{padding:16px}
+}
+</style>
+</head>
+<body>
+
+<aside>
+  <h1>Code xe robot</h1>
+  <p>Chọn một file để xem và sao chép.</p>
+  <nav id="menu"></nav>
+</aside>
+
+<main>
+  <div class="bar">
+    <h2 id="title">&nbsp;</h2>
+    <div class="actions">
+      <button class="btn" id="copy">Sao chép vào máy</button>
+      <button class="btn alt" id="down">Tải file</button>
+    </div>
+  </div>
+  <pre><code id="code"></code></pre>
+</main>
+
+<script>
+var ROOT = "codes/";                       // thu muc goc chua code
+var EXT = /\.(ino|h|cpp|c|py|txt|md)$/i;   // loai file duoc hien thi
+
+var menu = document.getElementById("menu");
+var titleEl = document.getElementById("title");
+var codeEl = document.getElementById("code");
+var copyBtn = document.getElementById("copy");
+var downBtn = document.getElementById("down");
+var files = [], current = "", text = "";
+
+function ghInfo() {
+  var m = location.hostname.match(/^(.+)\.github\.io$/);
+  if (!m) return null;
+  var seg = location.pathname.split("/")[1];
+  var repo = (seg && !/\.html?$/i.test(seg)) ? seg : location.hostname;
+  return { owner: m[1], repo: repo };
+}
+
+// 1) Tu dong doc danh sach file tu GitHub (khi chay tren GitHub Pages)
+// 2) Neu khong duoc thi doc manifest.json
+function listFiles() {
+  var gh = ghInfo();
+  var viaManifest = function () {
+    return fetch("manifest.json").then(function (r) {
+      if (!r.ok) throw new Error("manifest");
+      return r.json();
+    });
+  };
+  if (!gh) return viaManifest();
+  return fetch("https://api.github.com/repos/" + gh.owner + "/" + gh.repo + "/git/trees/HEAD?recursive=1")
+    .then(function (r) { if (!r.ok) throw new Error("api"); return r.json(); })
+    .then(function (j) {
+      return j.tree.filter(function (t) { return t.type === "blob"; })
+                   .map(function (t) { return t.path; });
+    })
+    .catch(viaManifest);
+}
+
+function build(paths) {
+  files = paths.filter(function (p) { return p.indexOf(ROOT) === 0 && EXT.test(p); }).sort();
+  var groups = {}, order = [];
+  files.forEach(function (p) {
+    var rel = p.slice(ROOT.length), i = rel.lastIndexOf("/");
+    var dir = i < 0 ? "(codes)" : rel.slice(0, i).split("/").join(" / ");
+    if (!groups[dir]) { groups[dir] = []; order.push(dir); }
+    groups[dir].push(p);
+  });
+  menu.innerHTML = "";
+  order.forEach(function (dir) {
+    var g = document.createElement("div");
+    g.className = "group"; g.textContent = dir;
+    menu.appendChild(g);
+    groups[dir].forEach(function (p) {
+      var b = document.createElement("button");
+      b.textContent = p.split("/").pop();
+      b.dataset.path = p;
+      b.addEventListener("click", function () { show(p); });
+      menu.appendChild(b);
+    });
+  });
+}
+
+function show(p) {
+  current = p; text = "";
+  titleEl.textContent = p.split("/").pop();
+  copyBtn.textContent = "Sao chép vào máy";
+  Array.prototype.forEach.call(menu.querySelectorAll("button"), function (b) {
+    b.setAttribute("aria-current", b.dataset.path === p ? "true" : "false");
+  });
+  history.replaceState(null, "", "#" + encodeURI(p));
+  codeEl.textContent = "Đang tải...";
+  fetch(encodeURI(p)).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.text();
+  }).then(function (t) {
+    if (current !== p) return;
+    text = t.replace(/\r\n/g, "\n");
+    codeEl.textContent = text;
+  }).catch(function () {
+    codeEl.innerHTML = '<span class="msg">Không đọc được file. Nếu bạn mở trực tiếp file index.html trong máy thì trình duyệt chặn việc đọc file. Hãy đưa lên GitHub Pages, hoặc chạy <b>python -m http.server</b> trong thư mục này rồi mở http://localhost:8000.</span>';
+  });
+}
+
+copyBtn.addEventListener("click", function () {
+  if (!text) return;
+  function done() {
+    copyBtn.textContent = "Đã sao chép";
+    setTimeout(function () { copyBtn.textContent = "Sao chép vào máy"; }, 2000);
+  }
+  function fallback() {
+    var t = document.createElement("textarea");
+    t.value = text; t.style.position = "fixed"; t.style.opacity = "0";
+    document.body.appendChild(t); t.select();
+    try { document.execCommand("copy"); done(); } catch (e) { copyBtn.textContent = "Không sao chép được"; }
+    document.body.removeChild(t);
+  }
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback);
+  else fallback();
+});
+
+downBtn.addEventListener("click", function () {
+  if (!text) return;
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.download = current.split("/").pop();
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+});
+
+listFiles().then(function (paths) {
+  build(paths);
+  if (!files.length) { codeEl.textContent = "Chưa có file nào trong thư mục codes/."; return; }
+  var want = decodeURI(location.hash.slice(1));
+  show(files.indexOf(want) >= 0 ? want : files[0]);
+}).catch(function () {
+  codeEl.innerHTML = '<span class="msg">Không đọc được danh sách file. Hãy đưa trang lên GitHub Pages, hoặc chạy <b>python -m http.server</b> trong thư mục này rồi mở http://localhost:8000.</span>';
+});
+</script>
+</body>
+</html>
